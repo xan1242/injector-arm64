@@ -23,9 +23,13 @@ There are a few new functions introduced:
 
 - `WriteMemoryNoTr` and `ReadMemoryNoTr` - Write/Read memory addresses without translation
 
-- `MakeBR` - for use with branches to memory areas further away than `0x7fffffc` - takes 3 instructions, uses register `X16`
+- `MakeBR` - for use with branches to memory areas further away than `0x7fffffc` - takes 3 instructions, uses register `X16`, +/- 4GB distance from `at`
 
-- `MakeBLR` - for use with calls to memory areas further away than `0x7fffffc` - takes 3 instructions, uses register `X16`
+- `MakeBLR` - for use with calls to memory areas further away than `0x7fffffc` - takes 3 instructions, uses register `X16`, +/- 4GB distance from `at`
+
+- `MakeBRPointer` - creates a BR instruction with a dereferenced function pointer pointer, for use with branches to anywhere in memory - takes 3 instructions, uses registers `X16` and `X17`
+
+- `MakeBLRPointer` - creates a BLR instruction with a dereferenced function pointer pointer, for use with calls to anywhere in memory - takes 3 instructions, uses registers `X16` and `X17`
 
 ## TODO
 
