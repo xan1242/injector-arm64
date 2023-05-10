@@ -600,6 +600,11 @@ inline memory_pointer_raw MakeB(memory_pointer_tr at, memory_pointer_tr dest, bo
     return p;
 }
 
+/*
+ *  MakeBRaw
+ *      Creates a B instruction at address @at that jumps into address (raw) @dest
+ *      TODO: If there was already a branch instruction there, returns the previosly destination of the branch
+ */
 inline memory_pointer_raw MakeBRaw(memory_pointer_tr at, memory_pointer_raw dest, bool vp = true)
 {
     //LOGD("at: 0x%lX\tdest: 0x%lX\n", (unsigned long)(at.get<void>()), (unsigned long)(dest.get<void>()));
@@ -615,6 +620,96 @@ inline memory_pointer_raw MakeBRaw(memory_pointer_tr at, memory_pointer_raw dest
     // construct branch arm64
     intptr_t off = (uintptr_t)(dest.get<void>()) - (uintptr_t)(at.get<void>());
     uint32_t ins = 0x14000000;
+
+    if (off < 0)
+    {
+        if (off > -4)
+            return nullptr;
+
+
+
+        ins = (off / 4) & 0x17FFFFFF;
+        ins |= 0x2000000;
+    }
+    else
+    {
+        if ((off > 0x7fffffc))
+            return nullptr;
+
+        ins |= ((off / 4) & 0x1FFFFFF);
+    }
+
+    //LOGD("off: 0x%X\tins: 0x%X\tat: 0x%lX\tdest: 0x%lX\n", (uint32_t)off, ins, (unsigned long)(at.get<void>()), (unsigned long)(dest.get<void>()));
+
+    WriteMemory<uint32_t>(at, ins, true, true);
+
+    return p;
+}
+
+/*
+ *  MakeBL
+ *      Creates a BL instruction at address @at that jumps into address @dest
+ *      TODO: If there was already a branch instruction there, returns the previosly destination of the branch
+ */
+inline memory_pointer_raw MakeBL(memory_pointer_tr at, memory_pointer_tr dest, bool vp = true)
+{
+    if ((uintptr_t)at.get<void>() % 4)
+        return nullptr;
+
+    if ((uintptr_t)dest.get<void>() % 4)
+        return nullptr;
+
+    auto p = GetBranchDestination(at, vp);
+
+    // construct branch with link arm64
+    intptr_t off = (uintptr_t)(dest.get<void>()) - (uintptr_t)(at.get<void>());
+    uint32_t ins = 0x94000000;
+
+    if (off < 0)
+    {
+        if (off > -4)
+            return nullptr;
+
+
+
+        ins = (off / 4) & 0x17FFFFFF;
+        ins |= 0x2000000;
+    }
+    else
+    {
+        if ((off > 0x7fffffc))
+            return nullptr;
+
+        ins |= ((off / 4) & 0x1FFFFFF);
+    }
+
+    //LOGD("off: 0x%X\tins: 0x%X\tat: 0x%lX\tdest: 0x%lX\n", (uint32_t)off, ins, (unsigned long)(at.get<void>()), (unsigned long)(dest.get<void>()));
+
+    WriteMemory<uint32_t>(at, ins, true, true);
+
+    return p;
+}
+
+/*
+ *  MakeBLRaw
+ *      Creates a BL instruction at address @at that jumps into address (raw) @dest
+ *      TODO: If there was already a branch instruction there, returns the previosly destination of the branch
+ */
+inline memory_pointer_raw MakeBLRaw(memory_pointer_tr at, memory_pointer_raw dest, bool vp = true)
+{
+    //LOGD("at: 0x%lX\tdest: 0x%lX\n", (unsigned long)(at.get<void>()), (unsigned long)(dest.get<void>()));
+
+    if ((uintptr_t)at.get<void>() % 4)
+        return nullptr;
+
+    if ((uintptr_t)dest.get<void>() % 4)
+        return nullptr;
+
+    auto p = GetBranchDestination(at, vp);
+
+    // construct branch with link arm64
+    intptr_t off = (uintptr_t)(dest.get<void>()) - (uintptr_t)(at.get<void>());
+    uint32_t ins = 0x94000000;
 
     if (off < 0)
     {

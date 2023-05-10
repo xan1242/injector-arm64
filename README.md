@@ -14,6 +14,7 @@ ReadMemoryRaw
 ProtectMemory
 UnprotectMemory
 MakeB (equivalent to MakeJMP)
+MakeBL (equivalent to MakeCALL)
 MakeNOP
 MakeRET
 ```
@@ -27,8 +28,6 @@ There are a few new functions introduced:
 - `MakeBLR` - for use with calls to memory areas further away than `0x7fffffc` - takes 3 instructions, uses register `X16`
 
 ## TODO
-
-- add `MakeBL`
 
 - Memory page protection reading - this is specific to the Linux kernel, requires reading of `/proc/self/maps` - for now you have to manually designate if the memory area is executable or not
 
