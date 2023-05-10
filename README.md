@@ -34,3 +34,5 @@ There are a few new functions introduced:
 - Branch destination calculation
 
 - Other stuff (`hooking.hpp`, `calling.hpp`, `utility.hpp`, `assembly.hpp`)
+
+- Compile-time assertion and validation of memory addresses (must be aligned by 4 bytes for ARM)
