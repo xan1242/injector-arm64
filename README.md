@@ -1,6 +1,6 @@
 # injector (ARM64 Edition)
 
-This is a fork of [injector by thelink2012](https://github.com/thelink2012/injector) aimed at `arm64-v8a` platform (Android & Linux).
+This is a fork of [injector by thelink2012](https://github.com/thelink2012/injector) aimed at `arm64-v8a / aarch64` platform (Android & Linux).
 
 It doesn't support same exact functionality but the basics are there. 
 
@@ -25,7 +25,7 @@ There are a few new functions introduced:
 
 - `MakeBR` - for use with branches to memory areas further away than `0x7fffffc` - takes 3 instructions, uses register `X16`
 
-- `MakeBLR` - for use with calls to to memory areas further away than `0x7fffffc` - takes 3 instructions, uses register `X16`
+- `MakeBLR` - for use with calls to memory areas further away than `0x7fffffc` - takes 3 instructions, uses register `X16`
 
 ## TODO
 
