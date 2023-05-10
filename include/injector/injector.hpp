@@ -654,7 +654,7 @@ inline void MakeBR(memory_pointer_tr at, memory_pointer_raw dest, bool vp = true
         return;
 
     // assemble ADRP X16, addr & 0xF000
-    intptr_t off = (uintptr_t)(dest.get<void>()) - (uintptr_t)(at.get<void>());
+    intptr_t off = ((uintptr_t)(dest.get<void>()) & 0xFFFFFFFFFFFFF000) - ((uintptr_t)(at.get<void>()) & 0xFFFFFFFFFFFFF000);
     uint32_t ins = 0x90000010;
     uintptr_t cursor = 0;
 
@@ -716,7 +716,7 @@ inline void MakeBLR(memory_pointer_tr at, memory_pointer_raw dest, bool vp = tru
         return;
 
     // assemble ADRP X16, addr & 0xF000
-    intptr_t off = (uintptr_t)(dest.get<void>()) - (uintptr_t)(at.get<void>());
+    intptr_t off = ((uintptr_t)(dest.get<void>()) & 0xFFFFFFFFFFFFF000) - ((uintptr_t)(at.get<void>()) & 0xFFFFFFFFFFFFF000);
     uint32_t ins = 0x90000010;
     uintptr_t cursor = 0;
 
