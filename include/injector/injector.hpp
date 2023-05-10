@@ -799,6 +799,68 @@ inline void MakeBR(memory_pointer_tr at, memory_pointer_raw dest, bool vp = true
 }
 
 /*
+ *  MakeBRPointer
+ *      Creates BR instructions at address @at that jumps into address @@dest with registers X16 and X17
+ */
+inline void MakeBRPointer(memory_pointer_tr at, memory_pointer_raw dest, bool vp = true)
+{
+    if ((uintptr_t)at.get<void>() % 4)
+        return;
+
+    if ((uintptr_t)dest.get<void>() % 4)
+        return;
+
+    // assemble ADRP X16, addr & 0xF000
+    intptr_t off = ((uintptr_t)(dest.get<void>()) & 0xFFFFFFFFFFFFF000) - ((uintptr_t)(at.get<void>()) & 0xFFFFFFFFFFFFF000);
+    uint32_t ins = 0x90000010;
+    uintptr_t cursor = 0;
+
+    if (off < 0)
+    {
+        intptr_t coff = -off;
+        int32_t count1000 = ((coff >> 12) % 4) & 3;
+        int32_t count4000 = (((coff >> 12) / 5) & 0x3FFFF) + 1;
+
+        count1000 = (-count1000) & 3;
+        count4000 = (-count4000) & 0x3FFFF;
+
+        ins |= (count1000 << 29) | (count4000 << 5) | 0x800000;
+    }
+    else
+    {
+        int32_t count1000 = ((off >> 12) % 4) & 3;
+        int32_t count4000 = ((off >> 12) / 4) & 0x3FFFF;
+
+        ins |= (count1000 << 29) | (count4000 << 5);
+    }
+
+    //LOGD("writing: off: 0x%llX ins: 0x%X\n", (unsigned long long)(at.get<void>()) + cursor, ins);
+    unsigned int oldprotect = 0;
+    UnprotectMemory(at, true, oldprotect);
+    WriteMemory<uint32_t>(at, ins, false, false);
+    cursor += sizeof(uint32_t);
+
+    // assemble LDR X17, [X16, #(addr & 0xFFF)]
+    ins = 0xF9400211;
+    off = (uintptr_t)(dest.get<void>()) & 0xFFF;
+    off = off >> 3;
+    ins |= (off << 10);
+
+    WriteMemoryNoTr<uint32_t>((uintptr_t)(at.get<void>()) + cursor, ins, false, false);
+    cursor += sizeof(uint32_t);
+
+    // BR X17
+    ins = 0xD61F0220;
+    //LOGD("writing: off: 0x%llX ins: 0x%X\n", (unsigned long long)(at.get<void>()) + cursor, ins);
+    WriteMemoryNoTr<uint32_t>((uintptr_t)(at.get<void>()) + cursor, ins, false, false);
+    cursor += sizeof(uint32_t);
+
+    ProtectMemory(at, oldprotect);
+
+    return;
+}
+
+/*
  *  MakeBLR
  *      Creates BLR instructions at address @at that jumps into address @dest with register X16
  */
@@ -851,6 +913,68 @@ inline void MakeBLR(memory_pointer_tr at, memory_pointer_raw dest, bool vp = tru
 
     // BLR X16
     ins = 0xD63F0200;
+    //LOGD("writing: off: 0x%llX ins: 0x%X\n", (unsigned long long)(at.get<void>()) + cursor, ins);
+    WriteMemoryNoTr<uint32_t>((uintptr_t)(at.get<void>()) + cursor, ins, false, false);
+    cursor += sizeof(uint32_t);
+
+    ProtectMemory(at, oldprotect);
+
+    return;
+}
+
+/*
+ *  MakeBLRPointer
+ *      Creates BLR instructions at address @at that jumps into address @@dest with registers X16 and X17
+ */
+inline void MakeBLRPointer(memory_pointer_tr at, memory_pointer_raw dest, bool vp = true)
+{
+    if ((uintptr_t)at.get<void>() % 4)
+        return;
+
+    if ((uintptr_t)dest.get<void>() % 4)
+        return;
+
+    // assemble ADRP X16, addr & 0xF000
+    intptr_t off = ((uintptr_t)(dest.get<void>()) & 0xFFFFFFFFFFFFF000) - ((uintptr_t)(at.get<void>()) & 0xFFFFFFFFFFFFF000);
+    uint32_t ins = 0x90000010;
+    uintptr_t cursor = 0;
+
+    if (off < 0)
+    {
+        intptr_t coff = -off;
+        int32_t count1000 = ((coff >> 12) % 4) & 3;
+        int32_t count4000 = (((coff >> 12) / 5) & 0x3FFFF) + 1;
+
+        count1000 = (-count1000) & 3;
+        count4000 = (-count4000) & 0x3FFFF;
+
+        ins |= (count1000 << 29) | (count4000 << 5) | 0x800000;
+    }
+    else
+    {
+        int32_t count1000 = ((off >> 12) % 4) & 3;
+        int32_t count4000 = ((off >> 12) / 4) & 0x3FFFF;
+
+        ins |= (count1000 << 29) | (count4000 << 5);
+    }
+
+    //LOGD("writing: off: 0x%llX ins: 0x%X\n", (unsigned long long)(at.get<void>()) + cursor, ins);
+    unsigned int oldprotect = 0;
+    UnprotectMemory(at, true, oldprotect);
+    WriteMemory<uint32_t>(at, ins, false, false);
+    cursor += sizeof(uint32_t);
+
+    // assemble LDR X17, [X16, #(addr & 0xFFF)]
+    ins = 0xF9400211;
+    off = (uintptr_t)(dest.get<void>()) & 0xFFF;
+    off = off >> 3;
+    ins |= (off << 10);
+
+    WriteMemoryNoTr<uint32_t>((uintptr_t)(at.get<void>()) + cursor, ins, false, false);
+    cursor += sizeof(uint32_t);
+
+    // BLR X17
+    ins = 0xD63F0220;
     //LOGD("writing: off: 0x%llX ins: 0x%X\n", (unsigned long long)(at.get<void>()) + cursor, ins);
     WriteMemoryNoTr<uint32_t>((uintptr_t)(at.get<void>()) + cursor, ins, false, false);
     cursor += sizeof(uint32_t);
