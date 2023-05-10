@@ -23,44 +23,21 @@
  *     distribution.
  *
  */
+
+/*
+*   Injectors - arm64-v8a + Linux port by Xan/Tenjoin
+*/
+
 #pragma once
 #define INJECTOR_HAS_INJECTOR_HPP
-#include <windows.h>
 #include <cstdint>
 #include <cstdio>
+#include <sys/mman.h>
 #include "gvm/gvm.hpp"
-/*
-    The following macros (#define) are relevant on this header:
-
-    INJECTOR_GVM_HAS_TRANSLATOR
-        If defined, the user should provide their own address_manager::translator function.
-        That function is responssible for translating a void pointer (that mayn't be an actual pointer) into an actual address.
-        The meaning of that void pointer will be made by YOU when you send it to the functions that receive pointers on this library.
-        The default translator does nothing but returns that void pointer as the address.
-
-    INJECTOR_GVM_OWN_DETECT
-        If defined,  the user should provide it's own game detection function thought game_version_manager::Detect
-        By default it provide an good detection for the Grand Theft Auto series.
-
-    INJECTOR_GVM_PLUGIN_NAME
-        If this is defined, it will be used as the plugin name used at error messages.
-        By default it will use ""Unknown Plugin Name"
-
-    INJECTOR_GVM_DUMMY
-        If defined, the game_version_manager will be a dummy object
-        By default it provides a nice gvm for Grand Theft Auto series
-        
-    INJECTOR_OWN_GVM
-        If defined, the game_version_manager should be implemented by the user before including this library.
-        By default it provides a nice gvm for Grand Theft Auto series
-*/
-#include "gvm/gvm.hpp"
-
-
+//#include "../../hook_main.h"
 
 namespace injector
 {
-
 
 /*
  *  auto_pointer 
@@ -193,7 +170,7 @@ union basic_memory_pointer
  // Typedefs including memory translator for the above type
 typedef basic_memory_pointer<address_manager::fn_mem_translator>       memory_pointer;
 typedef basic_memory_pointer<address_manager::fn_mem_translator_nop>   memory_pointer_raw;
-typedef basic_memory_pointer<address_manager::fn_mem_translator_aslr>  memory_pointer_aslr;
+//typedef basic_memory_pointer<address_manager::fn_mem_translator_aslr>  memory_pointer_aslr;
 
 
 
@@ -258,18 +235,19 @@ union memory_pointer_tr
 };
 
 
-
-
-
-
-
 /*
  *  ProtectMemory
  *      Makes the address @addr have a protection of @protection
  */
-inline bool ProtectMemory(memory_pointer_tr addr, size_t size, DWORD protection)
+inline int ProtectMemory(memory_pointer_tr addr, unsigned int protection)
 {
-    return VirtualProtect(addr.get(), size, protection, &protection) != 0;
+    //return VirtualProtect(addr.get(), size, protection, &protection) != 0;
+    //return true;
+    uintptr_t calcaddr = (uintptr_t)addr.get<void>();
+
+    void* page_start = (void*)(calcaddr - calcaddr % PAGE_SIZE);
+    return mprotect(page_start, PAGE_SIZE, protection) == 0;
+
 }
 
 /*
@@ -277,9 +255,17 @@ inline bool ProtectMemory(memory_pointer_tr addr, size_t size, DWORD protection)
  *      Unprotect the memory at @addr with size @size so it have all accesses (execute, read and write)
  *      Returns the old protection to out_oldprotect
  */
-inline bool UnprotectMemory(memory_pointer_tr addr, size_t size, DWORD& out_oldprotect)
+inline int UnprotectMemory(memory_pointer_tr addr, bool bExecutable, unsigned int& out_oldprotect)
 {
-    return VirtualProtect(addr.get(), size, PAGE_EXECUTE_READWRITE, &out_oldprotect) != 0;
+    //return VirtualProtect(addr.get(), size, PAGE_EXECUTE_READWRITE, &out_oldprotect) != 0;
+    //return true;
+    uintptr_t calcaddr = (uintptr_t)addr.get<void>();
+
+    void* page_start = (void*)(calcaddr - calcaddr % PAGE_SIZE);
+    out_oldprotect = PROT_READ; // TODO -- find an easy way to get the current memory page status, this is a HACK
+    if (bExecutable) out_oldprotect |= PROT_EXEC;
+    //LOGD("unprotect addr: 0x%lX\n", (unsigned long)calcaddr);
+    return mprotect(page_start, PAGE_SIZE, PROT_READ | PROT_WRITE | PROT_EXEC) == 0;
 }
 
 /*
@@ -291,18 +277,18 @@ struct scoped_unprotect
 {
     memory_pointer_raw  addr;
     size_t              size;
-    DWORD               dwOldProtect;
+    unsigned int        dwOldProtect;
     bool                bUnprotected;
 
-    scoped_unprotect(memory_pointer_tr addr, size_t size)
+    scoped_unprotect(memory_pointer_tr addr, size_t size, bool bExecutable)
     {
         if(size == 0) bUnprotected = false;
-        else          bUnprotected = UnprotectMemory(this->addr = addr.get<void>(), this->size = size, dwOldProtect);
+        else          bUnprotected = UnprotectMemory(this->addr = addr.get<void>(), bExecutable, dwOldProtect);
     }
     
     ~scoped_unprotect()
     {
-        if(bUnprotected) ProtectMemory(this->addr.get(), this->size, this->dwOldProtect);
+        if(bUnprotected) ProtectMemory(this->addr.get(), this->dwOldProtect);
     }
 };
 
@@ -318,9 +304,9 @@ struct scoped_unprotect
  *      Writes into memory @addr the content of @value with a sizeof @size
  *      Does memory unprotection if @vp is true
  */
-inline void WriteMemoryRaw(memory_pointer_tr addr, void* value, size_t size, bool vp)
+inline void WriteMemoryRaw(memory_pointer_tr addr, void* value, size_t size, bool vp, bool exec)
 {
-    scoped_unprotect xprotect(addr, vp? size : 0);
+    scoped_unprotect xprotect(addr, vp? size : 0, exec);
     memcpy(addr.get(), value, size);
 }
 
@@ -329,9 +315,9 @@ inline void WriteMemoryRaw(memory_pointer_tr addr, void* value, size_t size, boo
  *      Reads the memory at @addr with a sizeof @size into address @ret
  *      Does memory unprotection if @vp is true
  */
-inline void ReadMemoryRaw(memory_pointer_tr addr, void* ret, size_t size, bool vp)
+inline void ReadMemoryRaw(memory_pointer_tr addr, void* ret, size_t size, bool vp, bool exec)
 {
-    scoped_unprotect xprotect(addr, vp? size : 0);
+    scoped_unprotect xprotect(addr, vp? size : 0, exec);
     memcpy(ret, addr.get(), size);
 }
 
@@ -340,9 +326,9 @@ inline void ReadMemoryRaw(memory_pointer_tr addr, void* ret, size_t size, bool v
  *      Fills the memory at @addr with the byte @value doing it @size times
  *      Does memory unprotection if @vp is true
  */
-inline void MemoryFill(memory_pointer_tr addr, uint8_t value, size_t size, bool vp)
+inline void MemoryFill(memory_pointer_tr addr, uint8_t value, size_t size, bool vp, bool exec)
 {
-    scoped_unprotect xprotect(addr, vp? size : 0);
+    scoped_unprotect xprotect(addr, vp? size : 0, exec);
     memset(addr.get(), value, size);
 }
 
@@ -352,9 +338,9 @@ inline void MemoryFill(memory_pointer_tr addr, uint8_t value, size_t size, bool 
  *      Does memory unprotection if @vp is true
  */
 template<class T>
-inline T& WriteObject(memory_pointer_tr addr, const T& value, bool vp = false)
+inline T& WriteObject(memory_pointer_tr addr, const T& value, bool vp = false, bool exec = false)
 {
-    scoped_unprotect xprotect(addr, vp? sizeof(value) : 0);
+    scoped_unprotect xprotect(addr, vp? sizeof(value) : 0, exec);
     return (*addr.get<T>() = value);
 }
 
@@ -364,9 +350,9 @@ inline T& WriteObject(memory_pointer_tr addr, const T& value, bool vp = false)
  *      Does memory unprotection if @vp is true
  */
 template<class T>
-inline T& ReadObject(memory_pointer_tr addr, T& value, bool vp = false)
+inline T& ReadObject(memory_pointer_tr addr, T& value, bool vp = false, bool exec = false)
 {
-    scoped_unprotect xprotect(addr, vp? sizeof(value) : 0);
+    scoped_unprotect xprotect(addr, vp? sizeof(value) : 0, exec);
     return (value = *addr.get<T>());
 }
 
@@ -377,9 +363,9 @@ inline T& ReadObject(memory_pointer_tr addr, T& value, bool vp = false)
  *      Does memory unprotection if @vp is true
  */
 template<class T>
-inline void WriteMemory(memory_pointer_tr addr, T value, bool vp = false)
+inline void WriteMemory(memory_pointer_tr addr, T value, bool vp = false, bool exec = false)
 {
-    WriteObject(addr, value, vp);
+    WriteObject(addr, value, vp, exec);
 }
 
 /*
@@ -388,10 +374,33 @@ inline void WriteMemory(memory_pointer_tr addr, T value, bool vp = false)
  *      Does memory unprotection if @vp is true
  */
 template<class T>
-inline T ReadMemory(memory_pointer_tr addr, bool vp = false)
+inline T ReadMemory(memory_pointer_tr addr, bool vp = false, bool exec = false)
 {
     T value;
-    return ReadObject(addr, value, vp);
+    return ReadObject(addr, value, vp, exec);
+}
+
+/*
+ *  WriteMemoryNoTr
+ *      Writes the object of type T into the address @addr
+ *      Does memory unprotection if @vp is true
+ */
+template<class T>
+inline void WriteMemoryNoTr(memory_pointer_raw addr, T value, bool vp = false, bool exec = false)
+{
+    WriteObject(addr, value, vp, exec);
+}
+
+/*
+ *  ReadMemoryNoTr
+ *      Reads the object type T at address @addr
+ *      Does memory unprotection if @vp is true
+ */
+template<class T>
+inline T ReadMemoryNoTr(memory_pointer_raw addr, bool vp = false, bool exec = false)
+{
+    T value;
+    return ReadObject(addr, value, vp, exec);
 }
 
 /*
@@ -402,9 +411,9 @@ inline T ReadMemory(memory_pointer_tr addr, bool vp = false)
  */
  inline memory_pointer_raw AdjustPointer(memory_pointer_tr addr,
                                          memory_pointer_raw replacement_base, memory_pointer_tr default_base, memory_pointer_tr default_end,
-                                         size_t max_search = 8, bool vp = true)
+                                         size_t max_search = 8, bool vp = true, bool exec = false)
  {
-    scoped_unprotect xprotect(addr, vp? max_search + sizeof(void*) : 0);
+    scoped_unprotect xprotect(addr, vp? max_search + sizeof(void*) : 0, exec);
     for(size_t i = 0; i < max_search; ++i)
     {
         memory_pointer_raw ptr = ReadMemory<void*>(addr + i);
@@ -477,90 +486,307 @@ inline void MakeRelativeOffset(memory_pointer_tr at, memory_pointer_tr dest, siz
  */
 inline memory_pointer_raw GetBranchDestination(memory_pointer_tr at, bool vp = true)
 {
-    switch(ReadMemory<uint8_t>(at, vp))
-    {
-        // We need to handle other instructions (and prefixes) later...
-        case 0xE8:	// call rel
-        case 0xE9:	// jmp rel
-            return ReadRelativeOffset(at + 1, 4, vp);
+    uint32_t ins = ReadMemory<uint32_t>(at, vp, true);
 
-        case 0xFF: 
-            switch(ReadMemory<uint8_t>(at + 1, vp))
-            {
-                case 0x15:  // call dword ptr [addr]
-                case 0x25:  // jmp dword ptr [addr]
-                    return *(ReadMemory<uintptr_t*>(at + 2, vp));
-            }
-            break;
+    if (ins & 0x14000000) // branch arm64 -- TODO
+    {
+        bool sign = (ins & 0x2000000) != 0;
+        int32_t off = ins & 0x1FFFFFF;
+        if (sign)
+            off = -off;
+        off *= 4;
+        
+        uintptr_t out = off + (uintptr_t)(at.get<void>());
+        return out;
     }
+
+    //switch(ReadMemory<uint8_t>(at, vp))
+    //{
+    //    // We need to handle other instructions (and prefixes) later...
+    //    case 0xE8:	// call rel
+    //    case 0xE9:	// jmp rel
+    //        return ReadRelativeOffset(at + 1, 4, vp);
+    //
+    //    case 0xFF: 
+    //        switch(ReadMemory<uint8_t>(at + 1, vp))
+    //        {
+    //            case 0x15:  // call dword ptr [addr]
+    //            case 0x25:  // jmp dword ptr [addr]
+    //                return *(ReadMemory<uintptr_t*>(at + 2, vp));
+    //        }
+    //        break;
+    //}
     return nullptr;
 }
 
+// /*
+//  *  MakeJMP
+//  *      Creates a JMP instruction at address @at that jumps into address @dest
+//  *      If there was already a branch instruction there, returns the previosly destination of the branch
+//  */
+// inline memory_pointer_raw MakeJMP(memory_pointer_tr at, memory_pointer_raw dest, bool vp = true)
+// {
+//     auto p = GetBranchDestination(at, vp);
+//     WriteMemory<uint8_t>(at, 0xE9, vp);
+//     MakeRelativeOffset(at+1, dest, 4, vp);
+//     return p;
+// }
+// 
+// /*
+//  *  MakeCALL
+//  *      Creates a CALL instruction at address @at that jumps into address @dest
+//  *      If there was already a branch instruction there, returns the previosly destination of the branch
+//  */
+// inline memory_pointer_raw MakeCALL(memory_pointer_tr at, memory_pointer_raw dest, bool vp = true)
+// {
+//     auto p = GetBranchDestination(at, vp);
+//     WriteMemory<uint8_t>(at, 0xE8, vp);
+//     MakeRelativeOffset(at+1, dest, 4, vp);
+//     return p;
+// }
+
+// /*
+//  *  MakeJA
+//  *      Creates a JA instruction at address @at that jumps if above into address @dest
+//  *      If there was already a branch instruction there, returns the previosly destination of the branch
+//  */
+// inline void MakeJA(memory_pointer_tr at, memory_pointer_raw dest, bool vp = true)
+// {
+//     WriteMemory<uint16_t>(at, 0x87F0, vp);
+//     MakeRelativeOffset(at+2, dest, 4, vp);
+// }
+
 /*
- *  MakeJMP
- *      Creates a JMP instruction at address @at that jumps into address @dest
- *      If there was already a branch instruction there, returns the previosly destination of the branch
+ *  MakeB
+ *      Creates a B instruction at address @at that jumps into address @dest
+ *      TODO: If there was already a branch instruction there, returns the previosly destination of the branch
  */
-inline memory_pointer_raw MakeJMP(memory_pointer_tr at, memory_pointer_raw dest, bool vp = true)
+inline memory_pointer_raw MakeB(memory_pointer_tr at, memory_pointer_tr dest, bool vp = true)
 {
+    if ((uintptr_t)at.get<void>() % 4)
+        return nullptr;
+    
+    if ((uintptr_t)dest.get<void>() % 4)
+        return nullptr;
+
     auto p = GetBranchDestination(at, vp);
-    WriteMemory<uint8_t>(at, 0xE9, vp);
-    MakeRelativeOffset(at+1, dest, 4, vp);
+
+    // construct branch arm64
+    intptr_t off = (uintptr_t)(dest.get<void>()) - (uintptr_t)(at.get<void>());
+    uint32_t ins = 0x14000000;
+
+    if (off < 0)
+    {
+        if (off > -4)
+            return nullptr;
+
+
+
+        ins = (off / 4) & 0x17FFFFFF;
+        ins |= 0x2000000;
+    }
+    else
+    {
+        if ((off > 0x7fffffc))
+            return nullptr;
+
+        ins |= ((off / 4) & 0x1FFFFFF);
+    }
+
+    //LOGD("off: 0x%X\tins: 0x%X\tat: 0x%lX\tdest: 0x%lX\n", (uint32_t)off, ins, (unsigned long)(at.get<void>()), (unsigned long)(dest.get<void>()));
+
+    WriteMemory<uint32_t>(at, ins, true, true);
+
+    return p;
+}
+
+inline memory_pointer_raw MakeBRaw(memory_pointer_tr at, memory_pointer_raw dest, bool vp = true)
+{
+    //LOGD("at: 0x%lX\tdest: 0x%lX\n", (unsigned long)(at.get<void>()), (unsigned long)(dest.get<void>()));
+
+    if ((uintptr_t)at.get<void>() % 4)
+        return nullptr;
+
+    if ((uintptr_t)dest.get<void>() % 4)
+        return nullptr;
+
+    auto p = GetBranchDestination(at, vp);
+
+    // construct branch arm64
+    intptr_t off = (uintptr_t)(dest.get<void>()) - (uintptr_t)(at.get<void>());
+    uint32_t ins = 0x14000000;
+
+    if (off < 0)
+    {
+        if (off > -4)
+            return nullptr;
+
+
+
+        ins = (off / 4) & 0x17FFFFFF;
+        ins |= 0x2000000;
+    }
+    else
+    {
+        if ((off > 0x7fffffc))
+            return nullptr;
+
+        ins |= ((off / 4) & 0x1FFFFFF);
+    }
+
+    //LOGD("off: 0x%X\tins: 0x%X\tat: 0x%lX\tdest: 0x%lX\n", (uint32_t)off, ins, (unsigned long)(at.get<void>()), (unsigned long)(dest.get<void>()));
+
+    WriteMemory<uint32_t>(at, ins, true, true);
+
     return p;
 }
 
 /*
- *  MakeCALL
- *      Creates a CALL instruction at address @at that jumps into address @dest
- *      If there was already a branch instruction there, returns the previosly destination of the branch
+ *  MakeBR
+ *      Creates BR instructions at address @at that jumps into address @dest with register X16
  */
-inline memory_pointer_raw MakeCALL(memory_pointer_tr at, memory_pointer_raw dest, bool vp = true)
+inline void MakeBR(memory_pointer_tr at, memory_pointer_raw dest, bool vp = true)
 {
-    auto p = GetBranchDestination(at, vp);
-    WriteMemory<uint8_t>(at, 0xE8, vp);
-    MakeRelativeOffset(at+1, dest, 4, vp);
-    return p;
+    if ((uintptr_t)at.get<void>() % 4)
+        return;
+
+    if ((uintptr_t)dest.get<void>() % 4)
+        return;
+
+    // assemble ADRP X16, addr & 0xF000
+    intptr_t off = (uintptr_t)(dest.get<void>()) - (uintptr_t)(at.get<void>());
+    uint32_t ins = 0x90000010;
+    uintptr_t cursor = 0;
+
+    if (off < 0)
+    {
+        intptr_t coff = -off;
+        int32_t count1000 = ((coff >> 12) % 4) & 3;
+        int32_t count4000 = (((coff >> 12) / 5) & 0x3FFFF) + 1;
+
+        count1000 = (-count1000) & 3;
+        count4000 = (-count4000) & 0x3FFFF;
+
+        ins |= (count1000 << 29) | (count4000 << 5) | 0x800000;
+    }
+    else
+    {
+        int32_t count1000 = ((off >> 12) % 4) & 3;
+        int32_t count4000 = ((off >> 12) / 4) & 0x3FFFF;
+
+        ins |= (count1000 << 29) | (count4000 << 5);
+    }
+
+    //LOGD("writing: off: 0x%llX ins: 0x%X\n", (unsigned long long)(at.get<void>()) + cursor, ins);
+    unsigned int oldprotect = 0;
+    UnprotectMemory(at, true, oldprotect);
+    WriteMemory<uint32_t>(at, ins, false, false);
+    cursor += sizeof(uint32_t);
+
+    // assemble ADD X16, X16, #(addr & 0xFFF)
+    ins = 0x91000210;
+    off = (uintptr_t)(dest.get<void>()) & 0xFFF;
+    ins |= (off << 10);
+
+    //LOGD("writing: off: 0x%llX ins: 0x%X\n", (unsigned long long)(at.get<void>()) + cursor, ins);
+    WriteMemoryNoTr<uint32_t>((uintptr_t)(at.get<void>()) + cursor, ins, false, false);
+    cursor += sizeof(uint32_t);
+
+    // BR X16
+    ins = 0xD61F0200;
+    //LOGD("writing: off: 0x%llX ins: 0x%X\n", (unsigned long long)(at.get<void>()) + cursor, ins);
+    WriteMemoryNoTr<uint32_t>((uintptr_t)(at.get<void>()) + cursor, ins, false, false);
+    cursor += sizeof(uint32_t);
+
+    ProtectMemory(at, oldprotect);
+
+    return;
 }
 
 /*
- *  MakeJA
- *      Creates a JA instruction at address @at that jumps if above into address @dest
- *      If there was already a branch instruction there, returns the previosly destination of the branch
+ *  MakeBLR
+ *      Creates BLR instructions at address @at that jumps into address @dest with register X16
  */
-inline void MakeJA(memory_pointer_tr at, memory_pointer_raw dest, bool vp = true)
+inline void MakeBLR(memory_pointer_tr at, memory_pointer_raw dest, bool vp = true)
 {
-    WriteMemory<uint16_t>(at, 0x87F0, vp);
-    MakeRelativeOffset(at+2, dest, 4, vp);
+    if ((uintptr_t)at.get<void>() % 4)
+        return;
+
+    if ((uintptr_t)dest.get<void>() % 4)
+        return;
+
+    // assemble ADRP X16, addr & 0xF000
+    intptr_t off = (uintptr_t)(dest.get<void>()) - (uintptr_t)(at.get<void>());
+    uint32_t ins = 0x90000010;
+    uintptr_t cursor = 0;
+
+    if (off < 0)
+    {
+        intptr_t coff = -off;
+        int32_t count1000 = ((coff >> 12) % 4) & 3;
+        int32_t count4000 = (((coff >> 12) / 5) & 0x3FFFF) + 1;
+
+        count1000 = (-count1000) & 3;
+        count4000 = (-count4000) & 0x3FFFF;
+
+        ins |= (count1000 << 29) | (count4000 << 5) | 0x800000;
+    }
+    else
+    {
+        int32_t count1000 = ((off >> 12) % 4) & 3;
+        int32_t count4000 = ((off >> 12) / 4) & 0x3FFFF;
+
+        ins |= (count1000 << 29) | (count4000 << 5);
+    }
+
+    //LOGD("writing: off: 0x%llX ins: 0x%X\n", (unsigned long long)(at.get<void>()) + cursor, ins);
+    unsigned int oldprotect = 0;
+    UnprotectMemory(at, true, oldprotect);
+    WriteMemory<uint32_t>(at, ins, false, false);
+    cursor += sizeof(uint32_t);
+
+    // assemble ADD X16, X16, #(addr & 0xFFF)
+    ins = 0x91000210;
+    off = (uintptr_t)(dest.get<void>()) & 0xFFF;
+    ins |= (off << 10);
+
+    //LOGD("writing: off: 0x%llX ins: 0x%X\n", (unsigned long long)(at.get<void>()) + cursor, ins);
+    WriteMemoryNoTr<uint32_t>((uintptr_t)(at.get<void>()) + cursor, ins, false, false);
+    cursor += sizeof(uint32_t);
+
+    // BLR X16
+    ins = 0xD63F0200;
+    //LOGD("writing: off: 0x%llX ins: 0x%X\n", (unsigned long long)(at.get<void>()) + cursor, ins);
+    WriteMemoryNoTr<uint32_t>((uintptr_t)(at.get<void>()) + cursor, ins, false, false);
+    cursor += sizeof(uint32_t);
+
+    ProtectMemory(at, oldprotect);
+
+    return;
 }
 
 /*
  *  MakeNOP
  *      Creates a bunch of NOP instructions at address @at
  */
-inline void MakeNOP(memory_pointer_tr at, size_t count = 1, bool vp = true)
+inline void MakeNOP(memory_pointer_tr at, size_t count = 1, bool vp = true, bool exec = true)
 {
-    MemoryFill(at, 0x90, count, vp);
-}
-
-/*
- *  MakeRangedNOP
- *      Creates a bunch of NOP instructions at address @at until address @until
- */
-inline void MakeRangedNOP(memory_pointer_tr at, memory_pointer_tr until, bool vp = true)
-{
-    return MakeNOP(at, size_t(until.get_raw<char>() - at.get_raw<char>()), vp);
+    uintptr_t calcaddr = (uintptr_t)at.get<void>();
+    for (int i = 0; i < count; i++)
+    {
+        WriteMemory<uint32_t>(calcaddr, 0xD503201F, vp, exec);
+        calcaddr += sizeof(uint32_t);
+    }
 }
 
 
 /*
  *  MakeRET
- *      Creates a RET instruction at address @at popping @pop values from the stack
- *      If @pop is equal to 0 it will use the 1 byte form of the instruction
+ *      Creates a RET instruction at address @at
  */
-inline void MakeRET(memory_pointer_tr at, uint16_t pop = 0, bool vp = true)
+inline void MakeRET(memory_pointer_tr at, bool vp = true, bool exec = true)
 {
-    WriteMemory(at, pop? 0xC2 : 0xC3, vp);
-    if(pop) WriteMemory(at+1, pop, vp);
+    WriteMemory<uint32_t>(at, 0xD65F03C0, vp, exec);
 }
 
 
@@ -584,7 +810,7 @@ inline void MakeRET(memory_pointer_tr at, uint16_t pop = 0, bool vp = true)
          template<class T>
          static T* get()
          {
-             return get().get<T>();
+             return get().template get<T>();
          }
 
     private:
@@ -645,113 +871,6 @@ inline memory_pointer_raw  lazy_ptr()
 {
     return lazy_pointer<addr>::get();
 }
-
-template<class T>
-inline memory_pointer_aslr  aslr_ptr(T p)
-{
-    return memory_pointer_aslr(p);
-}
-
-
-
-
-
-
-#ifndef INJECTOR_GVM_OWN_DETECT // Should we implement our detection method?
-
-// Detects game, region and version; returns false if could not detect it
-inline bool game_version_manager::Detect()
-{
-    // Cleanup data
-    this->Clear();
-
-    // Find NT header
-    uintptr_t          base     = (uintptr_t) GetModuleHandleA(NULL);
-    IMAGE_DOS_HEADER*  dos      = (IMAGE_DOS_HEADER*)(base);
-    IMAGE_NT_HEADERS*  nt       = (IMAGE_NT_HEADERS*)(base + dos->e_lfanew);
-            
-    // Look for game and version thought the entry-point
-    // Thanks to Silent for many of the entry point offsets
-    switch (base + nt->OptionalHeader.AddressOfEntryPoint + (0x400000 - base))
-    {
-        case 0x5C1E70:  // GTA III 1.0
-            game = '3', major = 1, minor = 0, region = 0, steam = false;
-            return true;
-            
-        case 0x5C2130:  // GTA III 1.1
-            game = '3', major = 1, minor = 1, region = 0, steam = false;
-            return true;
-            
-        case 0x5C6FD0:  // GTA III 1.1 (Cracked Steam Version)
-        case 0x9912ED:  // GTA III 1.1 (Encrypted Steam Version)
-            game = '3', major = 1, minor = 1, region = 0, steam = true;
-            return true;
-    
-        case 0x667BF0:  // GTA VC 1.0
-            game = 'V', major = 1, minor = 0, region = 0, steam = false;
-            return true;
-            
-        case 0x667C40:  // GTA VC 1.1
-            game = 'V', major = 1, minor = 1, region = 0, steam = false;
-            return true;
-
-        case 0x666BA0:  // GTA VC 1.1 (Cracked Steam Version)
-        case 0xA402ED:  // GTA VC 1.1 (Encrypted Steam Version)
-            game = 'V', major = 1, minor = 1, region = 0, steam = true;
-            return true;
-    
-        case 0x82457C:  // GTA SA 1.0 US Cracked
-        case 0x824570:  // GTA SA 1.0 US Compact
-            game = 'S', major = 1, minor = 0, region = 'U', steam = false;
-            cracker = injector::ReadMemory<uint8_t>(raw_ptr(0x406A20), true) == 0xE9? 'H' : 0;
-            return true;
-
-        case 0x8245BC:  // GTA SA 1.0 EU Cracked (??????)
-        case 0x8245B0:  // GTA SA 1.0 EU Cracked
-            game = 'S', major = 1, minor = 0, region = 'E', steam = false;
-            cracker = injector::ReadMemory<uint8_t>(raw_ptr(0x406A20), true) == 0xE9? 'H' : 0;  // just to say 'securom'
-            return true;
-            
-        case 0x8252FC:  // GTA SA 1.1 US Cracked
-            game = 'S', major = 1, minor = 1, region = 'U', steam = false;
-            return true;
-            
-        case 0x82533C:  // GTA SA 1.1 EU Cracked
-            game = 'S', major = 1, minor = 1, region = 'E', steam = false;
-            return true;
-            
-        case 0x85EC4A:  // GTA SA 3.0 (Cracked Steam Version)
-        case 0xD3C3DB:  // GTA SA 3.0 (Encrypted Steam Version)
-            game = 'S', major = 3, minor = 0, region = 0, steam = true;
-            return true;
-
-        case 0xC965AD:  // GTA IV 1.0.0.4 US
-            game = 'I', major = 1, minor = 0, majorRevision = 0, minorRevision = 4, region = 'U', steam = false;
-            return true;
-
-        case 0xD0D011:  // GTA IV 1.0.0.7 US
-            game = 'I', major = 1, minor = 0, majorRevision = 0, minorRevision = 7, region = 'U', steam = false;
-            return true;
-
-        case 0xCF529E:  // GTA IV 1.0.0.8 US
-            game = 'I', major = 1, minor = 0, majorRevision = 0, minorRevision = 8, region = 'U', steam = false;
-            return true;
-
-        case 0xD0AF06:  // GTA EFLC 1.1.2.0 US
-            game = 'E', major = 1, minor = 1, majorRevision = 2, minorRevision = 0, region = 'U', steam = false;
-            return true;
-
-        case 0xCF4BAD:  // GTA EFLC 1.1.3.0 US
-            game = 'E', major = 1, minor = 1, majorRevision = 3, minorRevision = 0, region = 'U', steam = false;
-            return true;
-
-        default:
-            return false;
-    }
-}
-
-#endif
-
 
 } // namespace 
 
