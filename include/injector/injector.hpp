@@ -718,7 +718,7 @@ inline memory_pointer_raw MakeBLRaw(memory_pointer_tr at, memory_pointer_raw des
 
 
 
-        ins = (off / 4) & 0x17FFFFFF;
+        ins = (off / 4) & 0x97FFFFFF;
         ins |= 0x2000000;
     }
     else
